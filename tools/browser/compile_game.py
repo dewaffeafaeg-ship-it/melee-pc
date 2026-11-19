@@ -18,7 +18,7 @@ from execution_charset import cp932_literals
 OUT = BUILD / 'game'
 
 PREPROCESS_FLAGS = [
-    WASM_TARGET, f'--sysroot={SYSROOT}', '-pthread', '-fsigned-char',
+    WASM_TARGET, f'--sysroot={SYSROOT}', '-fsigned-char',
     '-D__EMSCRIPTEN__', '-DTARGET_PC=1', '-DMELEE_PC=1', '-DMELEE_DISC_LOWERING=1',
     '-Iextern/aurora/include', '-Isrc', '-Isrc/sdk_include',
     '-include', 'dolphin/gx.h',
@@ -33,7 +33,7 @@ PREPROCESS_FLAGS = [
 # has to produce the same floats as every other platform. -fsigned-char is
 # wasm32's default already; stated for the same reason the native build does.
 COMPILE_FLAGS = [
-    '-O2', '-pthread', '-fsigned-char', '-Wno-everything', '-ferror-limit=5',
+    '-O2', '-fsigned-char', '-Wno-everything', '-ferror-limit=5',
     '-ffp-contract=off', '-fno-fast-math',
     '-fno-builtin-sinf', '-fno-builtin-cosf', '-fno-builtin-tanf', '-fno-builtin-atanf',
     '-ftrivial-auto-var-init=zero', '-fno-strict-aliasing', '-fwrapv',

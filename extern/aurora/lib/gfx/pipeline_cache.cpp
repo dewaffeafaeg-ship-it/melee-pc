@@ -1277,6 +1277,37 @@ static bool write_scene_record(const PipelineCacheWrite& write) {
   return ret == SQLITE_OK;
 }
 
+// Writes one batch in a single transaction. Returns false (after aborting the
+// cache) when a write fails.
+static bool pipeline_cache_write_batch(const std::deque<PipelineCacheWrite>& batch) {
+  bool writeFailed = false;
+  {
+    sqlite::Transaction tx(g_pipelineCacheDb, Log, true);
+    if (!tx) {
+      Log.error("Failed to begin pipeline cache write transaction");
+      writeFailed = true;
+    } else {
+      for (const auto& write : batch) {
+        if (!(write.scene ? write_scene_record(write) :
+              write.deviceBuilt ? write_device_built_record(write) : write_pipeline_cache_record(write))) {
+          writeFailed = true;
+          break;
+        }
+      }
+
+      if (!writeFailed) {
+        tx.commit();
+      }
+    }
+  }
+
+  if (writeFailed) {
+    pipeline_cache_abort();
+    return false;
+  }
+  return true;
+}
+
 static void pipeline_cache_writer() {
 #ifdef TRACY_ENABLE
   tracy::SetThreadName("Pipeline cache writer thread");
@@ -1294,33 +1325,35 @@ static void pipeline_cache_writer() {
       batch.swap(g_pipelineCacheWriteQueue);
     }
 
-    bool writeFailed = false;
-    {
-      sqlite::Transaction tx(g_pipelineCacheDb, Log, true);
-      if (!tx) {
-        Log.error("Failed to begin pipeline cache write transaction");
-        writeFailed = true;
-      } else {
-        for (const auto& write : batch) {
-          if (!(write.scene ? write_scene_record(write) :
-                write.deviceBuilt ? write_device_built_record(write) : write_pipeline_cache_record(write))) {
-            writeFailed = true;
-            break;
-          }
-        }
-
-        if (!writeFailed) {
-          tx.commit();
-        }
-      }
-    }
-
-    if (writeFailed) {
-      pipeline_cache_abort();
+    if (!pipeline_cache_write_batch(batch)) {
       return;
     }
   }
 }
+
+#ifdef __EMSCRIPTEN__
+// The browser build has no threads (so the page needs no cross-origin
+// isolation). The writer's work runs on the game thread instead: once per
+// frame from end_pipeline_frame(), and once more on shutdown.
+static bool g_pipelineCacheInlineWriter = false;
+
+static void drain_pipeline_cache_writes() {
+  if (!g_pipelineCacheInlineWriter) {
+    return;
+  }
+  std::deque<PipelineCacheWrite> batch;
+  {
+    std::lock_guard lock{g_pipelineCacheWriterMutex};
+    if (g_pipelineCacheWriteQueue.empty()) {
+      return;
+    }
+    batch.swap(g_pipelineCacheWriteQueue);
+  }
+  if (!pipeline_cache_write_batch(batch)) {
+    g_pipelineCacheInlineWriter = false;
+  }
+}
+#endif
 
 static void build_pending_pipeline(PendingPipeline& pending) {
   auto result = create_timed(pending.create);
@@ -1467,10 +1500,19 @@ static void start_pipeline_cache_writer() {
   }
 
   g_pipelineCacheWriterStop = false;
+#ifdef __EMSCRIPTEN__
+  g_pipelineCacheInlineWriter = true;
+#else
   g_pipelineCacheWriterThread = std::thread(pipeline_cache_writer);
+#endif
 }
 
 static void stop_pipeline_cache_writer() {
+#ifdef __EMSCRIPTEN__
+  drain_pipeline_cache_writes();
+  g_pipelineCacheInlineWriter = false;
+  g_pipelineCacheWriterStop = false;
+#else
   if (g_pipelineCacheWriterThread.joinable()) {
     {
       std::lock_guard lock{g_pipelineCacheWriterMutex};
@@ -1481,6 +1523,7 @@ static void stop_pipeline_cache_writer() {
   } else {
     g_pipelineCacheWriterStop = false;
   }
+#endif
 
   g_pipelineCacheWriteQueue.clear();
 }
@@ -1714,6 +1757,9 @@ extern "C" void browser_prepare_graphics() {
 #endif
 
 void end_pipeline_frame() {
+#ifdef __EMSCRIPTEN__
+  drain_pipeline_cache_writes();
+#endif
   if (!g_hasPipelineThread) {
     pipeline_worker();
   }
