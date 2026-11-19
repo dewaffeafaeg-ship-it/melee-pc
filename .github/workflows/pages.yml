@@ -66,11 +66,15 @@ jobs:
           BIN=build/browser/emsdk/upstream/bin
           W=build/browser/runtime/platforms/browser/melee_browser.wasm
           ls -l build/browser/runtime/platforms/browser/ || true
-          python3 tools/browser/diag_wasm.py "$W" 6172090 || true
+          python3 tools/browser/diag_wasm.py "$W" 6172090 170,171,172,173,174,22550 || true
+          echo "--- llvm-objdump of the failing function ---"
+          "$LLVM_ROOT/bin/llvm-objdump" -d --no-show-raw-insn --disassemble-symbols=compare256_stub "$W" 2>&1 | head -80 || true
           echo "--- wasm-dis with feature detection (what emcc did) ---"
           "$BIN/wasm-dis" --detect-features "$W" -o /dev/null 2>&1 | tail -3 || true
           echo "--- wasm-dis with ALL features enabled ---"
           "$BIN/wasm-dis" -all "$W" -o /dev/null 2>&1 | tail -3 || true
+          echo "--- wasm-dis --debug (last lines before the failure) ---"
+          "$BIN/wasm-dis" -all --debug "$W" -o /dev/null 2>&1 | tail -25 || true
           echo "--- done ---"
       - name: Assemble the site
         run: |

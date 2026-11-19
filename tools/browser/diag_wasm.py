@@ -6,6 +6,7 @@ import sys
 
 p = sys.argv[1]
 target = int(sys.argv[2]) if len(sys.argv) > 2 else None
+extra = [int(x) for x in sys.argv[3].split(',')] if len(sys.argv) > 3 else []
 b = open(p, 'rb').read()
 
 
@@ -41,15 +42,16 @@ for sid, name, start, sz in secs:
 
 # imported function count + function names, to name the function at the offset
 nimp = 0
+imports = []
 for sid, name, start, sz in secs:
     if sid == 2:
         n, k = leb(start)
         for _ in range(n):
-            l, k = leb(k); k += l
-            l, k = leb(k); k += l
+            l, k = leb(k); mod = b[k:k + l].decode('utf8', 'replace'); k += l
+            l, k = leb(k); fld = b[k:k + l].decode('utf8', 'replace'); k += l
             kind = b[k]; k += 1
             if kind == 0:
-                nimp += 1; _, k = leb(k)
+                nimp += 1; ti, k = leb(k); imports.append((mod, fld, ti))
             elif kind == 1:
                 k += 1; fl, k = leb(k); _, k = leb(k)
                 if fl & 1: _, k = leb(k)
@@ -95,3 +97,36 @@ if target is not None:
                 k = k2 + fs
     if not found:
         print(f'offset {target} is not inside the code section')
+
+
+# ---- types and signatures of selected functions
+types = []
+for sid, name, start, sz in secs:
+    if sid == 1:
+        n, k = leb(start)
+        for _ in range(n):
+            form = b[k]; k += 1
+            np_, k = leb(k); params = list(b[k:k + np_]); k += np_
+            nr, k = leb(k); results = list(b[k:k + nr]); k += nr
+            types.append((params, results))
+VT = {0x7f: 'i32', 0x7e: 'i64', 0x7d: 'f32', 0x7c: 'f64', 0x7b: 'v128', 0x70: 'funcref', 0x6f: 'externref'}
+fsec = []
+for sid, name, start, sz in secs:
+    if sid == 3:
+        n, k = leb(start)
+        for _ in range(n):
+            t, k = leb(k); fsec.append(t)
+
+
+def sig(ti):
+    p, r = types[ti]
+    return '(' + ','.join(VT.get(x, hex(x)) for x in p) + ') -> (' + ','.join(VT.get(x, hex(x)) for x in r) + ')'
+
+
+print('--- selected functions ---')
+for idx in extra + ([nimp + 0] if False else []):
+    if idx < nimp:
+        mod, fld, ti = imports[idx]
+        print(f'#{idx}: IMPORT {mod}.{fld} sig {sig(ti)}')
+    else:
+        print(f'#{idx}: defined "{names.get(idx, "?")}" sig {sig(fsec[idx - nimp])}')
