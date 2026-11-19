@@ -59,6 +59,19 @@ jobs:
       # compiling the game, and the page's node tests after linking.
       - name: Build the browser platform
         run: python3 tools/browser/build.py --jobs "$(nproc)"
+      # Runs only when the build above fails: say why Binaryen cannot parse the linked wasm.
+      - name: Diagnose a failed link
+        if: failure()
+        run: |
+          BIN=build/browser/emsdk/upstream/bin
+          W=build/browser/runtime/platforms/browser/melee_browser.wasm
+          ls -l build/browser/runtime/platforms/browser/ || true
+          python3 tools/browser/diag_wasm.py "$W" 6172090 || true
+          echo "--- wasm-dis with feature detection (what emcc did) ---"
+          "$BIN/wasm-dis" --detect-features "$W" -o /dev/null 2>&1 | tail -3 || true
+          echo "--- wasm-dis with ALL features enabled ---"
+          "$BIN/wasm-dis" -all "$W" -o /dev/null 2>&1 | tail -3 || true
+          echo "--- done ---"
       - name: Assemble the site
         run: |
           mkdir -p _site/play
