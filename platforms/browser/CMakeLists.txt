@@ -7,6 +7,10 @@ set(AURORA_ENABLE_CARD ON CACHE BOOL "" FORCE)
 set(AURORA_ENABLE_THP ON CACHE BOOL "" FORCE)
 set(AURORA_ENABLE_RMLUI OFF CACHE BOOL "" FORCE)
 set(AURORA_CACHE_USE_ZSTD OFF CACHE BOOL "" FORCE)
+# zlib-ng's runtime CPU dispatch (functable.c) is pointless on wasm, and its position-independent
+# stubs (e.g. compare256_stub) come out of the link with a wrong call index that Binaryen rejects
+# ("popping from empty stack"). Use the generic C functions directly instead.
+set(WITH_RUNTIME_CPU_DETECTION OFF CACHE BOOL "" FORCE)
 set(AURORA_SDL3_PROVIDER vendor CACHE STRING "" FORCE)
 set(AURORA_SDL3_LINKAGE static CACHE STRING "" FORCE)
 add_compile_definitions(ENABLE_BACKEND_WEBGPU)
